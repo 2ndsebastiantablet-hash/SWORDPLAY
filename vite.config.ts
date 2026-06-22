@@ -20,5 +20,8 @@ function sourceNavigationGuard(): Plugin {
 }
 
 export default defineConfig({
+  build: {
+    outDir: "dist",
+  },
   plugins: [sourceNavigationGuard()],
 });
