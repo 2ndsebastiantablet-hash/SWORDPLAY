@@ -4,15 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview --host 127.0.0.1",
+    "preview": "vite preview",
     "test": "vitest run"
   },
   "dependencies": {
     "three": "^0.165.0"
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "@types/three": "^0.184.1",
     "typescript": "^5.5.4",
     "vite": "^5.4.19",

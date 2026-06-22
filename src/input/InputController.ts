@@ -11,9 +11,11 @@ export class InputController {
   private swordRoll = 0;
   private restartQueued = false;
   private locked = false;
+  private enabled = true;
 
-  constructor(target: HTMLElement) {
+  constructor(target: HTMLElement, options: { enabled?: boolean } = {}) {
     this.target = target;
+    this.enabled = options.enabled ?? true;
     this.target.tabIndex = 0;
     this.bindEvents();
   }
@@ -22,8 +24,29 @@ export class InputController {
     return this.locked;
   }
 
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.keys.clear();
+      return;
+    }
+    this.target.focus();
+  }
+
+  requestPointerLock(): void {
+    if (!this.enabled) return;
+    this.target.focus();
+    if (document.pointerLockElement === this.target) return;
+    const lockRequest = this.target.requestPointerLock();
+    if (lockRequest && typeof lockRequest.catch === "function") {
+      lockRequest.catch(() => {
+        this.locked = false;
+      });
+    }
+  }
+
   consumeFrame(dt: number): PlayerInputFrame {
-    const move = mapMovementKeys(this.keys);
+    const move = this.enabled ? mapMovementKeys(this.keys) : vec2(0, 0);
 
     this.swordVelocity = {
       x: (this.swordAim.x - this.previousAim.x) / Math.max(dt, 0.0001),
@@ -45,15 +68,7 @@ export class InputController {
 
   private bindEvents(): void {
     this.target.addEventListener("click", () => {
-      this.target.focus();
-      if (document.pointerLockElement !== this.target) {
-        const lockRequest = this.target.requestPointerLock();
-        if (lockRequest && typeof lockRequest.catch === "function") {
-          lockRequest.catch(() => {
-            this.locked = false;
-          });
-        }
-      }
+      this.requestPointerLock();
     });
 
     document.addEventListener("pointerlockchange", () => {
@@ -61,6 +76,7 @@ export class InputController {
     });
 
     window.addEventListener("keydown", (event) => {
+      if (!this.enabled) return;
       if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) {
         this.keys.add(event.code);
         event.preventDefault();
@@ -71,6 +87,7 @@ export class InputController {
     });
 
     window.addEventListener("keyup", (event) => {
+      if (!this.enabled) return;
       this.keys.delete(event.code);
     });
 
@@ -79,6 +96,7 @@ export class InputController {
     });
 
     window.addEventListener("mousemove", (event) => {
+      if (!this.enabled) return;
       if (this.locked) {
         this.applyPointerDelta(event.movementX, event.movementY);
         return;

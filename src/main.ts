@@ -25,13 +25,42 @@ shell.className = "game-shell";
 root.appendChild(shell);
 
 const renderer = new DuelRenderer(shell);
-const input = new InputController(shell);
+const input = new InputController(shell, { enabled: false });
 const hud = new Hud(shell);
+const menu = document.createElement("section");
+menu.className = "main-menu";
+menu.setAttribute("aria-label", "Main menu");
+menu.innerHTML = `
+  <div class="menu-panel">
+    <p class="menu-kicker">Edgeguard arena duel</p>
+    <h1>SWORDPLAY</h1>
+    <button class="play-button" type="button">PLAY</button>
+  </div>
+`;
+shell.appendChild(menu);
+const playButton = menu.querySelector<HTMLButtonElement>(".play-button");
+if (!playButton) {
+  throw new Error("Missing main menu play button");
+}
 
 let state = createInitialState();
 let previousTime = performance.now();
 let accumulator = 0;
 const fixedStep = 1 / 60;
+let gameStarted = false;
+shell.classList.add("is-menu-open");
+
+playButton.addEventListener("click", () => {
+  gameStarted = true;
+  state = createInitialState();
+  previousTime = performance.now();
+  accumulator = 0;
+  menu.hidden = true;
+  shell.classList.remove("is-menu-open");
+  shell.classList.add("is-playing");
+  input.setEnabled(true);
+  input.requestPointerLock();
+});
 
 window.__EDGEGUARD_DEBUG__ = () => ({
   elapsed: state.elapsed,
@@ -70,6 +99,14 @@ function syncDebugAttributes(): void {
 function tick(now: number): void {
   const frameDt = Math.min((now - previousTime) / 1000, 0.08);
   previousTime = now;
+
+  if (!gameStarted) {
+    renderer.render(state, frameDt);
+    syncDebugAttributes();
+    requestAnimationFrame(tick);
+    return;
+  }
+
   accumulator += frameDt;
 
   let frame = input.consumeFrame(frameDt);

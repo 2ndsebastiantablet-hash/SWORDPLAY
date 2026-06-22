@@ -48,6 +48,81 @@ body {
   display: block;
 }
 
+.main-menu {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 42%, rgb(75 215 200 / 12%), transparent 34%),
+    linear-gradient(180deg, rgb(16 20 19 / 48%), rgb(16 20 19 / 84%));
+}
+
+.menu-panel {
+  width: min(520px, calc(100vw - 48px));
+  display: grid;
+  justify-items: center;
+  gap: 20px;
+  padding: 34px 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgb(17 22 20 / 82%);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 46%);
+  backdrop-filter: blur(10px);
+}
+
+.menu-kicker {
+  margin: 0;
+  color: var(--gold);
+  font-size: 0.8rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.menu-panel h1 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(3rem, 9vw, 5.6rem);
+  line-height: 0.9;
+  letter-spacing: 0;
+  text-shadow: 0 0 24px rgb(75 215 200 / 22%);
+}
+
+.play-button {
+  min-width: min(260px, 100%);
+  min-height: 64px;
+  border: 1px solid rgb(255 239 182 / 64%);
+  border-radius: 8px;
+  color: #15120b;
+  background: linear-gradient(180deg, #ffe28c, var(--gold));
+  box-shadow:
+    0 12px 28px rgb(0 0 0 / 32%),
+    inset 0 1px 0 rgb(255 255 255 / 44%);
+  font: inherit;
+  font-size: 1.15rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.play-button:hover,
+.play-button:focus-visible {
+  transform: translateY(-1px);
+  outline: 2px solid rgb(75 215 200 / 72%);
+  outline-offset: 4px;
+}
+
+.play-button:active {
+  transform: translateY(1px);
+}
+
+.game-shell.is-menu-open .hud {
+  opacity: 0;
+}
+
 .hud {
   position: absolute;
   inset: 18px 18px auto 18px;

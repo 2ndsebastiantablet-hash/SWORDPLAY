@@ -1,4 +1,4 @@
-# Edgeguard Duel
+# SWORDPLAY
 
 Original browser-based 3D sword-dueling prototype built with TypeScript, Vite, and Three.js.
 
@@ -9,7 +9,7 @@ npm.cmd install
 npm.cmd run dev -- --port 5177
 ```
 
-Open `http://127.0.0.1:5177`.
+Open the local URL printed by Vite.
 
 ## Controls
 
@@ -25,3 +25,10 @@ There are no attack, block, stamina, or special ability buttons. Blocking and st
 npm.cmd test
 npm.cmd run build
 ```
+
+## Cloudflare Pages
+
+- Framework preset: Vite
+- Build command: `npm run build`
+- Build output directory: `dist`
+- Node version: `20`
