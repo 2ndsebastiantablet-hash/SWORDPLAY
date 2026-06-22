@@ -17,6 +17,7 @@
     "@types/three": "^0.184.1",
     "typescript": "^5.5.4",
     "vite": "^6.4.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "wrangler": "^4.103.0"
   }
 }
