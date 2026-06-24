@@ -50,12 +50,14 @@ export const arenaFloorY = 0.105;
 const FIGHTER_RADIUS = 0.42;
 export const fighterRootCollisionRadius = 0.52;
 const BASE_SPEED = 2.35;
+export const baseMoveSpeed = BASE_SPEED;
 const NPC_REACTION = 0.72;
 const SWORD_TARGET_SPEED = 4.9;
 const MAX_HEALTH = 100;
 export const swordWeightFactor = 0.07;
 export const swordBounceDecay = 0.72;
 export const maxSwordReach = 2.2;
+export const maxSwordInteractionDistance = 3.4;
 export const minSwordGuardDistance = 0.7;
 export const minimumHitVelocity = 4.0;
 export const heavyHitVelocity = 12.0;
@@ -132,7 +134,16 @@ function makeFighter(id: "player" | "npc", position: Vec2): FighterState {
     isStuck: false,
     canMove: true,
     movementLocked: false,
+    inputDisabled: false,
     blockedByFloor: false,
+    swordContactThisFrame: false,
+    previousSwordContact: false,
+    bodyContactThisFrame: false,
+    wasHitThisFrame: false,
+    wasBlockedThisFrame: false,
+    clashThisFrame: false,
+    hitReactTimer: 0,
+    lastSwordDistance: Number.POSITIVE_INFINITY,
     sword: emptySword(position),
     body: makeBodyState(),
     blocking: false,
@@ -207,11 +218,38 @@ function isZeroBalanceStunned(fighter: FighterState): boolean {
   return fighter.balance <= 0 && fighter.body.stunSeconds > 0.001 && !fighter.falling;
 }
 
+function fighterDistance(a: FighterState, b: FighterState): number {
+  return length(sub(a.position, b.position));
+}
+
+export function swordDistanceBetweenFighters(state: DuelState): number {
+  return distanceSegmentToSegment(state.player.sword.hand, state.player.sword.tip, state.npc.sword.hand, state.npc.sword.tip);
+}
+
+export function fighterDistanceBetweenFighters(state: DuelState): number {
+  return fighterDistance(state.player, state.npc);
+}
+
+export function actualMoveSpeedForFighter(fighter: FighterState): number {
+  return baseMoveSpeed * movementMultiplierForFighter(fighter);
+}
+
+function beginContactFrame(fighter: FighterState): void {
+  fighter.previousSwordContact = fighter.swordContactThisFrame;
+  fighter.swordContactThisFrame = false;
+  fighter.bodyContactThisFrame = false;
+  fighter.wasHitThisFrame = false;
+  fighter.wasBlockedThisFrame = false;
+  fighter.clashThisFrame = false;
+  fighter.lastSwordDistance = Number.POSITIVE_INFINITY;
+}
+
 export function forceUnstickFighter(fighter: FighterState, arenaRadius = ARENA_RADIUS): void {
   if (fighter.falling || !isInsideArenaRoot(fighter, arenaRadius)) {
     fighter.isGrounded = false;
     fighter.canMove = false;
     fighter.movementLocked = true;
+    fighter.inputDisabled = true;
     fighter.blockedByFloor = false;
     fighter.isStuck = false;
     return;
@@ -226,6 +264,7 @@ export function forceUnstickFighter(fighter: FighterState, arenaRadius = ARENA_R
   const stunned = isZeroBalanceStunned(fighter);
   fighter.canMove = !stunned;
   fighter.movementLocked = stunned;
+  fighter.inputDisabled = stunned;
 }
 
 export function separateFighterRootCircles(a: FighterState, b: FighterState): void {
@@ -275,6 +314,7 @@ function forceNeutralControl(fighter: FighterState): void {
   fighter.body.recoverySeconds = 0;
   fighter.canMove = true;
   fighter.movementLocked = false;
+  fighter.inputDisabled = false;
   fighter.isStuck = false;
   fighter.blockedByFloor = false;
   fighter.combatState = "IDLE_GUARD";
@@ -315,10 +355,12 @@ function updateBodyAnimation(fighter: FighterState, dt: number, elapsed: number)
 
 export function movementMultiplierForFighter(fighter: FighterState): number {
   if (fighter.falling) return 1;
-  if (!fighter.canMove || fighter.movementLocked) return 0;
   if (fighter.balance <= 0 && fighter.body.stunSeconds > 0) return 0;
 
   let multiplier = lerp(0.78, 1, balanceRatio(fighter));
+  if (fighter.hitReactTimer > 0) {
+    multiplier = Math.min(multiplier, 0.8);
+  }
   const isStumbling =
     fighter.stumbleTimer > 0 ||
     fighter.combatState === "OFF_BALANCE" ||
@@ -454,6 +496,7 @@ function integrateFighter(fighter: FighterState, desiredMove: Vec2, dt: number, 
     fighter.isStuck = false;
     fighter.canMove = false;
     fighter.movementLocked = true;
+    fighter.inputDisabled = true;
     fighter.blockedByFloor = false;
     fighter.position = add(fighter.position, scale(fighter.velocity, dt));
     updateBodyAnimation(fighter, dt, elapsed);
@@ -473,6 +516,9 @@ function integrateFighter(fighter: FighterState, desiredMove: Vec2, dt: number, 
 function damageBalance(fighter: FighterState, loss: number, staggerSeconds = 0, knockbackDirection?: Vec2): void {
   fighter.balance = clamp(fighter.balance - loss, 0, fighter.maxBalance);
   fighter.balanceRecoveryCooldown = balanceRecoveryCooldownSeconds;
+  if (loss > 0 || staggerSeconds > 0) {
+    fighter.hitReactTimer = Math.max(fighter.hitReactTimer, 0.15);
+  }
   if (knockbackDirection) {
     const impactDirection = normalize(knockbackDirection, fighter.lastKnockbackDirection ?? vec2(0, 1));
     fighter.lastKnockbackDirection = impactDirection;
@@ -565,14 +611,23 @@ function nearEdgeBalanceDrain(fighter: FighterState, dt: number, arenaRadius: nu
 }
 
 function resolveSwordCollision(state: DuelState): void {
-  if (state.clashCooldown > 0) {
+  const player = state.player;
+  const npc = state.npc;
+  if (fighterDistance(player, npc) > maxSwordInteractionDistance) {
     return;
   }
 
-  const player = state.player;
-  const npc = state.npc;
   const bladeDistance = distanceSegmentToSegment(player.sword.hand, player.sword.tip, npc.sword.hand, npc.sword.tip);
+  player.lastSwordDistance = bladeDistance;
+  npc.lastSwordDistance = bladeDistance;
   if (bladeDistance > 0.25) {
+    return;
+  }
+
+  player.swordContactThisFrame = true;
+  npc.swordContactThisFrame = true;
+
+  if (state.clashCooldown > 0) {
     return;
   }
 
@@ -596,6 +651,8 @@ function resolveSwordCollision(state: DuelState): void {
 
   bounceSwordTarget(attacker, scale(normalize(attacker.sword.finalVelocity ?? attacker.sword.velocity, scale(pushNormal, -1)), -1), clash.attackerBounce);
   bounceSwordTarget(defender, scale(normalize(defender.sword.finalVelocity ?? defender.sword.velocity, pushNormal), -1), clash.defenderBounce);
+  attacker.clashThisFrame = true;
+  defender.clashThisFrame = true;
   if (clash.kind === "perfectParry") {
     damageBalance(attacker, clash.attackerBalanceLoss || perfectParryBalanceLoss, clash.attackerStaggerSeconds || perfectParryStaggerSeconds, scale(pushNormal, -1));
     attacker.staggerSeconds = Math.max(attacker.staggerSeconds, clash.attackerStaggerSeconds || perfectParryStaggerSeconds);
@@ -629,6 +686,10 @@ function triggerClash(state: DuelState, fighterA: FighterState, fighterB: Fighte
   const direction = normalize(sub(fighterB.position, fighterA.position), vec2(0, 1));
   bounceSwordTarget(fighterA, scale(direction, -1), 0.3);
   bounceSwordTarget(fighterB, direction, 0.3);
+  fighterA.swordContactThisFrame = true;
+  fighterB.swordContactThisFrame = true;
+  fighterA.clashThisFrame = true;
+  fighterB.clashThisFrame = true;
   state.shake = Math.max(state.shake, 0.12);
   addImpact(state, "clash", point, 1.25, 1);
   state.message = "Simultaneous bounce";
@@ -642,6 +703,8 @@ function applyPendingHit(state: DuelState, hit: PendingHitEvent): void {
   const attacker = fighterById(state, hit.attackerId);
   const defender = fighterById(state, hit.defenderId);
   if (defender.falling) return;
+  attacker.wasHitThisFrame = true;
+  defender.wasHitThisFrame = true;
   const upperMultiplier = hit.hitLocation === "upper" ? 1.18 : 1;
   const edgeMultiplier = edgeDangerMultiplier(defender, state.arenaRadius);
   const vulnerableToSlide = isKnockbackVulnerable(defender);
@@ -723,6 +786,10 @@ function drainRetreatBlockingBalance(fighter: FighterState, opponent: FighterSta
 }
 
 function resolveBodyContact(state: DuelState, attacker: FighterState, defender: FighterState, dt: number): void {
+  if (fighterDistance(attacker, defender) > maxSwordInteractionDistance) {
+    return;
+  }
+
   if (state.clashCooldown > 0) {
     return;
   }
@@ -746,6 +813,9 @@ function resolveBodyContact(state: DuelState, attacker: FighterState, defender: 
     return;
   }
 
+  attacker.bodyContactThisFrame = true;
+  defender.bodyContactThisFrame = true;
+
   const contactNormal = normalize(sub(defender.position, attacker.position), vec2(0, 1));
   const defenderBlocking =
     defender.blocking && distanceSegmentToSegment(attacker.sword.hand, attacker.sword.tip, defender.sword.hand, defender.sword.tip) < 0.44;
@@ -763,6 +833,8 @@ function resolveBodyContact(state: DuelState, attacker: FighterState, defender: 
     });
 
     if (matrix.kind === "PERFECT_BLOCK" || matrix.kind === "SUCCESSFUL_BLOCK") {
+      attacker.wasBlockedThisFrame = true;
+      defender.wasBlockedThisFrame = true;
       pushFighter(attacker, scale(contactNormal, -1), matrix.attackerPush);
       damageBalance(attacker, matrix.attackerBalanceLoss * edgeDangerMultiplier(attacker, state.arenaRadius), matrix.attackerStunSeconds, scale(contactNormal, -1));
       damageBalance(defender, matrix.defenderBalanceLoss * edgeDangerMultiplier(defender, state.arenaRadius), 0, contactNormal);
@@ -780,6 +852,8 @@ function resolveBodyContact(state: DuelState, attacker: FighterState, defender: 
     }
 
     if (matrix.kind === "GLANCING_BLOCK") {
+      attacker.wasBlockedThisFrame = true;
+      defender.wasBlockedThisFrame = true;
       pushFighter(attacker, scale(contactNormal, -1), matrix.attackerPush);
       pushFighter(defender, contactNormal, matrix.defenderPush);
       damageBalance(attacker, matrix.attackerBalanceLoss * edgeDangerMultiplier(attacker, state.arenaRadius), matrix.attackerStunSeconds, scale(contactNormal, -1));
@@ -796,6 +870,8 @@ function resolveBodyContact(state: DuelState, attacker: FighterState, defender: 
     }
 
     if (matrix.kind === "GUARD_BREAK") {
+      attacker.wasHitThisFrame = true;
+      defender.wasHitThisFrame = true;
       pushFighter(defender, contactNormal, matrix.defenderPush);
       damageBalance(defender, matrix.defenderBalanceLoss * edgeDangerMultiplier(defender, state.arenaRadius), 0.3, contactNormal);
       addFatigue(attacker, guardBreakFatigueGain);
@@ -834,6 +910,8 @@ function resolveBodyContact(state: DuelState, attacker: FighterState, defender: 
     staggerSeconds: hit.staggerSeconds,
     collisionPoint: defender.position,
   });
+  attacker.wasHitThisFrame = true;
+  defender.wasHitThisFrame = true;
   if (defenderBlocking) damageBalance(attacker, hit.balanceLoss * 0.18, 0.04, scale(contactNormal, -1));
 
   state[cooldownKey] = clamp(0.16 + swordSpeed * 0.012, 0.16, 0.32);
@@ -851,6 +929,7 @@ function checkRingOut(state: DuelState, fighter: FighterState, winner: "playerWo
   fighter.isStuck = false;
   fighter.canMove = false;
   fighter.movementLocked = true;
+  fighter.inputDisabled = true;
   fighter.blockedByFloor = false;
   fighter.verticalVelocity = Math.min(fighter.verticalVelocity, -1.4);
   fighter.velocity = add(fighter.velocity, scale(normalize(fighter.position), 1.4));
@@ -872,6 +951,8 @@ export function stepDuel(state: DuelState, input: PlayerInputFrame, dt: number):
   state.frame += 1;
   state.elapsed += safeDt;
   state.shake = Math.max(0, state.shake - safeDt * 1.7);
+  beginContactFrame(state.player);
+  beginContactFrame(state.npc);
 
   if (state.status !== "playing") {
     if (state.player.falling) {
@@ -892,6 +973,8 @@ export function stepDuel(state: DuelState, input: PlayerInputFrame, dt: number):
   state.npc.inputLockSeconds = Math.max(0, state.npc.inputLockSeconds - safeDt);
   state.player.stumbleTimer = Math.max(0, state.player.stumbleTimer - safeDt);
   state.npc.stumbleTimer = Math.max(0, state.npc.stumbleTimer - safeDt);
+  state.player.hitReactTimer = Math.max(0, state.player.hitReactTimer - safeDt);
+  state.npc.hitReactTimer = Math.max(0, state.npc.hitReactTimer - safeDt);
   updateLockSafety(state.player, safeDt);
   updateLockSafety(state.npc, safeDt);
   forceUnstickFighter(state.player, state.arenaRadius);

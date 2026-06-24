@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   arenaFloorY,
+  actualMoveSpeedForFighter,
   createInitialState,
   forceUnstickFighter,
+  maxSwordInteractionDistance,
   movementMultiplierForFighter,
   separateFighterRootCircles,
+  swordDistanceBetweenFighters,
   stepDuel,
 } from "../src/game/simulation";
 import { Hud } from "../src/ui/Hud";
@@ -213,6 +216,76 @@ describe("phase 3 balance, pacing, and ring-out", () => {
     expect(state.player.canMove).toBe(true);
     expect(state.player.movementLocked).toBe(false);
     expect(length(state.player.velocity)).toBeGreaterThan(0.02);
+  });
+
+  it("does not let stale far-away sword overlap slow or lock walking", () => {
+    const state = createInitialState();
+    state.player.position = vec2(0, -1.55);
+    state.npc.position = vec2(3.7, 0);
+    state.player.sword.hand = vec2(0, 0);
+    state.player.sword.tip = vec2(0, 0.9);
+    state.npc.sword.hand = vec2(0, 0);
+    state.npc.sword.tip = vec2(0, 0.9);
+    state.player.sword.velocity = vec2(12, 0);
+    state.npc.sword.velocity = vec2(-12, 0);
+    state.player.sword.finalVelocity = vec2(12, 0);
+    state.npc.sword.finalVelocity = vec2(-12, 0);
+
+    frame(state, { ...neutralInput, move: vec2(0, 1) });
+
+    expect(length(sub(state.player.position, state.npc.position))).toBeGreaterThan(maxSwordInteractionDistance);
+    expect(swordDistanceBetweenFighters(state)).toBeGreaterThanOrEqual(0);
+    expect(state.player.swordContactThisFrame).toBe(false);
+    expect(state.npc.swordContactThisFrame).toBe(false);
+    expect(state.player.hitReactTimer).toBe(0);
+    expect(state.player.stumbleTimer).toBe(0);
+    expect(state.player.canMove).toBe(true);
+    expect(state.player.movementLocked).toBe(false);
+    expect(movementMultiplierForFighter(state.player)).toBe(1);
+    expect(actualMoveSpeedForFighter(state.player)).toBeGreaterThan(2);
+    expect(length(state.player.velocity)).toBeGreaterThan(0.05);
+  });
+
+  it("resets one-frame sword contact flags and lets movement recover after contact ends", () => {
+    const state = createInitialState();
+    state.player.swordContactThisFrame = true;
+    state.npc.swordContactThisFrame = true;
+    state.player.hitReactTimer = 0.1;
+    state.player.stumbleTimer = 0.1;
+
+    for (let i = 0; i < 18; i += 1) {
+      state.player.sword.hand = vec2(-3, -3);
+      state.player.sword.tip = vec2(-3, -2);
+      state.npc.sword.hand = vec2(3, 3);
+      state.npc.sword.tip = vec2(3, 2);
+      frame(state, { ...neutralInput, move: vec2(0, 1) });
+    }
+
+    expect(state.player.previousSwordContact).toBe(false);
+    expect(state.player.swordContactThisFrame).toBe(false);
+    expect(state.player.hitReactTimer).toBe(0);
+    expect(state.player.stumbleTimer).toBe(0);
+    expect(state.player.canMove).toBe(true);
+    expect(state.player.movementLocked).toBe(false);
+    expect(movementMultiplierForFighter(state.player)).toBeGreaterThan(0.95);
+    expect(length(state.player.velocity)).toBeGreaterThan(0.05);
+  });
+
+  it("keeps clash cooldown from blocking WASD movement", () => {
+    const state = createInitialState();
+    state.clashCooldown = 999;
+    state.player.canMove = false;
+    state.player.movementLocked = true;
+    state.player.inputDisabled = true;
+
+    frame(state, { ...neutralInput, move: vec2(1, 0) });
+
+    expect(state.clashCooldown).toBeGreaterThan(0);
+    expect(state.player.canMove).toBe(true);
+    expect(state.player.movementLocked).toBe(false);
+    expect(state.player.inputDisabled).toBe(false);
+    expect(movementMultiplierForFighter(state.player)).toBe(1);
+    expect(length(state.player.velocity)).toBeGreaterThan(0.05);
   });
 
   it("does not let the floor unstick controller rescue a real ring-out", () => {

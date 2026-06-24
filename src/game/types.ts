@@ -83,7 +83,16 @@ export type FighterState = {
   isStuck: boolean;
   canMove: boolean;
   movementLocked: boolean;
+  inputDisabled: boolean;
   blockedByFloor: boolean;
+  swordContactThisFrame: boolean;
+  previousSwordContact: boolean;
+  bodyContactThisFrame: boolean;
+  wasHitThisFrame: boolean;
+  wasBlockedThisFrame: boolean;
+  clashThisFrame: boolean;
+  hitReactTimer: number;
+  lastSwordDistance: number;
   sword: SwordState;
   body: FighterBodyState;
   blocking: boolean;
