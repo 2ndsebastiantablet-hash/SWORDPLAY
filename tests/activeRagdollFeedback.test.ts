@@ -7,6 +7,15 @@ import {
 import { createInitialState, stepDuel, swordWeightFactor } from "../src/game/simulation";
 import { length, sub, vec2 } from "../src/game/math";
 import {
+  arenaSurfaceY,
+  clampPinLeanRotation,
+  computeCorrectedPinVisualLift,
+  computeFighterRootY,
+  computePinVisualBottomY,
+  computePinVisualLift,
+  maxPinLeanRadians,
+} from "../src/render/DuelRenderer";
+import {
   BOWLING_PIN_BODY_PARTS,
   RAGDOLL_NODE_NAMES,
   bowlingPinBodyHeight,
@@ -261,5 +270,37 @@ describe("bowling-pin fighter presentation and sword feedback", () => {
 
     expect(Math.hypot(fighter.visualLean.x, fighter.visualLean.z)).toBeLessThanOrEqual(maxVisualLeanOffset + 0.001);
     expect(Object.keys(fighter.nodes)).toEqual(["leftHand", "rightHand"]);
+  });
+
+  it("keeps the pin root clamped to the arena floor while lean and bob stay visual-only", () => {
+    const state = createInitialState();
+    state.player.body.bob = 0.035;
+
+    expect(computeFighterRootY(state.player)).toBeCloseTo(arenaSurfaceY, 4);
+
+    state.player.falling = true;
+    state.player.fallSeconds = 1.2;
+    expect(computeFighterRootY(state.player)).toBeLessThan(arenaSurfaceY);
+  });
+
+  it("clamps pin lean and raises the visual body so tilting cannot bury the base", () => {
+    const state = createInitialState();
+    state.npc.balance = 0;
+    state.npc.body.stunSeconds = 0.6;
+
+    const clamped = clampPinLeanRotation(state.npc, { x: 3.5, z: -3.5 });
+    const maxLean = maxPinLeanRadians(state.npc);
+
+    expect(Math.hypot(clamped.x, clamped.z)).toBeLessThanOrEqual(maxLean + 0.001);
+    expect(computePinVisualLift(clamped.x, clamped.z)).toBeGreaterThan(0);
+    expect(computePinVisualLift(0, 0)).toBe(0);
+  });
+
+  it("applies a final visual floor safety lift when recoil lean would clip below the arena", () => {
+    const unsafeLift = -0.18;
+    const correctedLift = computeCorrectedPinVisualLift(arenaSurfaceY, unsafeLift, 0.42, -0.32);
+
+    expect(correctedLift).toBeGreaterThan(unsafeLift);
+    expect(computePinVisualBottomY(arenaSurfaceY, correctedLift, 0.42, -0.32)).toBeGreaterThanOrEqual(arenaSurfaceY);
   });
 });

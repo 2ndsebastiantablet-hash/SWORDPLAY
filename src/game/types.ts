@@ -51,6 +51,7 @@ export type FighterBodyState = {
   targetLean: Vec2;
   recentImpact: Vec2;
   stunSeconds: number;
+  recoverySeconds: number;
 };
 
 export type FighterState = {

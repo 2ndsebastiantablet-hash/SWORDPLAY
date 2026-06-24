@@ -23,6 +23,7 @@ export {
 type FighterVisual = {
   ragdoll: RagdollFighter;
   bodyGroup: THREE.Group;
+  pinGroup: THREE.Group;
   body: THREE.Mesh;
   faceLeftEye: THREE.Mesh;
   faceRightEye: THREE.Mesh;
@@ -43,6 +44,10 @@ type LiveImpact = {
 };
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
+export const arenaSurfaceY = 0.105;
+const normalMaxPinLeanRadians = THREE.MathUtils.degToRad(16);
+const lowBalanceMaxPinLeanRadians = THREE.MathUtils.degToRad(30);
+const stunMaxPinLeanRadians = THREE.MathUtils.degToRad(50);
 
 function toWorld(v: Vec2, y = 0): THREE.Vector3 {
   return new THREE.Vector3(v.x, y, v.y);
@@ -100,6 +105,48 @@ export function computeBalanceTilt(fighter: FighterState, time: number): { x: nu
   }
 
   return { x, z };
+}
+
+export function maxPinLeanRadians(fighter: FighterState): number {
+  if (fighter.falling || fighter.body.stunSeconds > 0 || fighter.staggerSeconds > 0 || fighter.balance <= 0) {
+    return stunMaxPinLeanRadians;
+  }
+  if (fighter.balance < fighter.maxBalance * 0.5 || fighter.isOffBalance) {
+    return lowBalanceMaxPinLeanRadians;
+  }
+  return normalMaxPinLeanRadians;
+}
+
+export function clampPinLeanRotation(fighter: FighterState, lean: { x: number; z: number }): { x: number; z: number } {
+  const maxLean = maxPinLeanRadians(fighter);
+  const magnitude = Math.hypot(lean.x, lean.z);
+  if (magnitude <= maxLean || magnitude <= 0.00001) return lean;
+  const scaleToMax = maxLean / magnitude;
+  return {
+    x: lean.x * scaleToMax,
+    z: lean.z * scaleToMax,
+  };
+}
+
+export function computePinVisualLift(leanX: number, leanZ: number): number {
+  const leanMagnitude = Math.min(Math.hypot(leanX, leanZ), stunMaxPinLeanRadians);
+  return Math.sin(leanMagnitude) * bowlingPinBodyRadius * 1.05;
+}
+
+export function computePinVisualBottomY(rootY: number, visualLift: number, leanX: number, leanZ: number): number {
+  const leanMagnitude = Math.min(Math.hypot(leanX, leanZ), stunMaxPinLeanRadians);
+  return rootY + visualLift - Math.sin(leanMagnitude) * bowlingPinBodyRadius;
+}
+
+export function computeCorrectedPinVisualLift(rootY: number, visualLift: number, leanX: number, leanZ: number): number {
+  const bottomY = computePinVisualBottomY(rootY, visualLift, leanX, leanZ);
+  if (bottomY >= arenaSurfaceY) return visualLift;
+  return visualLift + (arenaSurfaceY - bottomY) + 0.0001;
+}
+
+export function computeFighterRootY(fighter: FighterState): number {
+  if (!fighter.falling) return arenaSurfaceY;
+  return arenaSurfaceY - Math.min(1.5, (fighter.fallSeconds ?? 0) * 1.1);
 }
 
 export class DuelRenderer {
@@ -235,24 +282,27 @@ export class DuelRenderer {
     const gripMaterial = new THREE.MeshStandardMaterial({ color: 0x2a1d17, roughness: 0.76 });
     const shadowMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.22, depthWrite: false });
     const bodyGroup = new THREE.Group();
-    bodyGroup.rotation.order = "YXZ";
     this.scene.add(bodyGroup);
+
+    const pinGroup = new THREE.Group();
+    pinGroup.rotation.order = "YXZ";
+    bodyGroup.add(pinGroup);
 
     const body = new THREE.Mesh(createPinGeometry(), bodyMaterial);
     body.castShadow = true;
     body.receiveShadow = true;
-    bodyGroup.add(body);
+    pinGroup.add(body);
 
     const eyeGeometry = new THREE.SphereGeometry(0.036, 8, 6);
     const faceLeftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
     const faceRightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
     faceLeftEye.position.set(-0.085, 1.42, 0.265);
     faceRightEye.position.set(0.085, 1.42, 0.265);
-    bodyGroup.add(faceLeftEye, faceRightEye);
+    pinGroup.add(faceLeftEye, faceRightEye);
 
     const faceMouth = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.018, 0.018), eyeMaterial);
     faceMouth.position.set(0, 1.29, 0.285);
-    bodyGroup.add(faceMouth);
+    pinGroup.add(faceMouth);
 
     const footGeometry = new THREE.CylinderGeometry(0.065, 0.08, 0.3, 8);
     footGeometry.rotateX(Math.PI / 2);
@@ -262,7 +312,7 @@ export class DuelRenderer {
     rightFootStub.castShadow = true;
     leftFootStub.position.set(-0.15, 0.075, 0.24);
     rightFootStub.position.set(0.15, 0.075, 0.24);
-    bodyGroup.add(leftFootStub, rightFootStub);
+    pinGroup.add(leftFootStub, rightFootStub);
 
     const handGeometry = new THREE.SphereGeometry(0.085, 12, 8);
     const leftHand = new THREE.Mesh(handGeometry, skinMaterial);
@@ -287,6 +337,7 @@ export class DuelRenderer {
     return {
       ragdoll,
       bodyGroup,
+      pinGroup,
       body,
       faceLeftEye,
       faceRightEye,
@@ -347,13 +398,24 @@ export class DuelRenderer {
     const balanceTilt = computeBalanceTilt(fighter, time);
     const forwardLean = dot(bodyLean, forward);
     const sideLean = dot(bodyLean, right);
-    const fallDrop = fighter.falling ? Math.min(1.5, (fighter.fallSeconds ?? 0) * 1.1) : 0;
+    const unclampedLean = {
+      x: -forwardLean * 1.8 + balanceTilt.x,
+      z: -sideLean * 1.8 + balanceTilt.z,
+    };
+    const clampedLean = clampPinLeanRotation(fighter, unclampedLean);
+    const rootY = computeFighterRootY(fighter);
+    const rawVisualLift = computePinVisualLift(clampedLean.x, clampedLean.z) + (fighter.falling ? 0 : Math.max(0, fighter.body.bob));
+    const visualLift = fighter.falling
+      ? rawVisualLift
+      : computeCorrectedPinVisualLift(rootY, rawVisualLift, clampedLean.x, clampedLean.z);
 
-    visual.bodyGroup.position.set(fighter.position.x, fighter.body.bob - fallDrop, fighter.position.y);
-    visual.bodyGroup.rotation.set(
-      -forwardLean * 1.8 + balanceTilt.x,
+    visual.bodyGroup.position.set(fighter.position.x, rootY, fighter.position.y);
+    visual.bodyGroup.rotation.set(0, 0, 0);
+    visual.pinGroup.position.y = visualLift;
+    visual.pinGroup.rotation.set(
+      clampedLean.x,
       yaw,
-      -sideLean * 1.8 + balanceTilt.z,
+      clampedLean.z,
     );
     visual.leftFootStub.position.y = 0.075 + fighter.body.leftFootLift;
     visual.rightFootStub.position.y = 0.075 + fighter.body.rightFootLift;
@@ -381,7 +443,7 @@ export class DuelRenderer {
     const speed = length(fighter.velocity);
     const balanceRatio = Math.max(0, Math.min(1, fighter.balance / Math.max(fighter.maxBalance, 1)));
     const instability = 1 - balanceRatio;
-    visual.shadow.position.set(fighter.position.x, 0.014, fighter.position.y);
+    visual.shadow.position.set(fighter.position.x, arenaSurfaceY + 0.014, fighter.position.y);
     visual.shadow.scale.set(1 + speed * 0.05, 0.74 + instability * 0.25, 1);
     visual.shadow.visible = !fighter.falling || (fighter.fallSeconds ?? 0) < 1.4;
 

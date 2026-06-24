@@ -62,6 +62,7 @@ const maxLockedStateSeconds = 0.4;
 const balanceRecoveryCooldownSeconds = 1.5;
 const stumbleDuration = 0.75;
 const criticalStumbleDuration = 1.15;
+const offBalanceRecoverySeconds = 0.38;
 const knockbackSlideBaseDistance = 0.42;
 const knockbackSlideDuration = 0.18;
 const fatigueRecoveryRate = 3.0;
@@ -84,6 +85,7 @@ function makeBodyState(): FighterState["body"] {
     targetLean: vec2(0, 0),
     recentImpact: vec2(0, 0),
     stunSeconds: 0,
+    recoverySeconds: 0,
   };
 }
 
@@ -194,8 +196,7 @@ function addFatigue(fighter: FighterState, amount: number): void {
 function isLockedCombatState(fighter: FighterState): boolean {
   return (
     fighter.inputLockSeconds > 0 ||
-    fighter.combatState === "PARRIED" ||
-    fighter.combatState === "RECOVERING"
+    fighter.combatState === "PARRIED"
   );
 }
 
@@ -206,11 +207,13 @@ function forceNeutralControl(fighter: FighterState): void {
   fighter.stumbleTimer = 0;
   fighter.lockedStateSeconds = 0;
   fighter.isOffBalance = false;
+  fighter.body.recoverySeconds = 0;
   fighter.combatState = "IDLE_GUARD";
 }
 
 function updateBodyAnimation(fighter: FighterState, dt: number, elapsed: number): void {
   fighter.body.stunSeconds = Math.max(0, fighter.body.stunSeconds - dt);
+  fighter.body.recoverySeconds = Math.max(0, fighter.body.recoverySeconds - dt);
 
   const speed = length(fighter.velocity);
   const movementDirection = normalize(fighter.velocity, fromAngle(fighter.facing));
@@ -238,6 +241,29 @@ function updateBodyAnimation(fighter: FighterState, dt: number, elapsed: number)
   fighter.body.targetLean = targetLean;
   fighter.body.visualLean = lerpVec(fighter.body.visualLean, targetLean, leanFollow);
   fighter.body.recentImpact = scale(fighter.body.recentImpact, Math.exp(-dt * 4.8));
+}
+
+export function movementMultiplierForFighter(fighter: FighterState): number {
+  if (fighter.falling) return 1;
+  if (fighter.balance <= 0 && fighter.body.stunSeconds > 0) return 0;
+
+  let multiplier = lerp(0.78, 1, balanceRatio(fighter));
+  const isStumbling =
+    fighter.stumbleTimer > 0 ||
+    fighter.combatState === "OFF_BALANCE" ||
+    fighter.combatState === "CRITICAL_STUMBLE";
+
+  if (isStumbling) {
+    multiplier = Math.min(multiplier, fighter.balance < criticalBalanceThreshold ? 0.55 : 0.68);
+  }
+  if (fighter.staggerSeconds > 0) {
+    multiplier = Math.min(multiplier, 0.65);
+  }
+  if (fighter.body.recoverySeconds > 0 || fighter.combatState === "RECOVERING") {
+    multiplier = Math.max(multiplier, 0.75);
+  }
+
+  return clamp(multiplier, 0, 1);
 }
 
 function updateLockSafety(fighter: FighterState, dt: number): void {
@@ -344,6 +370,7 @@ function updateSwordPhysics(fighter: FighterState, aim: Vec2, roll: number, move
   if (fighter.falling) fighter.combatState = "FALLING";
   else if (fighter.stumbleTimer > 0 && fighter.balance < criticalBalanceThreshold) fighter.combatState = "CRITICAL_STUMBLE";
   else if (fighter.stumbleTimer > 0 && fighter.balance < offBalanceThreshold) fighter.combatState = "OFF_BALANCE";
+  else if (fighter.body.recoverySeconds > 0) fighter.combatState = "RECOVERING";
   else if (fighter.inputLockSeconds <= 0 && fighter.staggerSeconds <= 0) fighter.combatState = fighter.sword.isSlashing ? "SLASHING" : "IDLE_GUARD";
 }
 
@@ -355,10 +382,7 @@ function integrateFighter(fighter: FighterState, desiredMove: Vec2, dt: number, 
     return;
   }
 
-  const balanceSpeed = lerp(0.55, 1, balanceRatio(fighter));
-  const staggerSpeed = fighter.staggerSeconds > 0 ? 0.45 : 1;
-  const stunSpeed = fighter.body.stunSeconds > 0 ? 0 : 1;
-  const desiredVelocity = scale(normalize(desiredMove), BASE_SPEED * balanceSpeed * staggerSpeed * stunSpeed);
+  const desiredVelocity = scale(normalize(desiredMove), BASE_SPEED * movementMultiplierForFighter(fighter));
   const acceleration = fighter.id === "player" ? 12 : 9;
   fighter.velocity = add(fighter.velocity, scale(sub(desiredVelocity, fighter.velocity), clamp(dt * acceleration, 0, 1)));
 
@@ -377,6 +401,7 @@ function damageBalance(fighter: FighterState, loss: number, staggerSeconds = 0, 
     fighter.body.recentImpact = impactDirection;
   }
   fighter.staggerSeconds = Math.max(fighter.staggerSeconds, staggerSeconds);
+  fighter.body.recoverySeconds = 0;
   if (fighter.balance <= 0 && !fighter.falling) {
     fighter.body.stunSeconds = Math.max(fighter.body.stunSeconds, zeroBalancePinStunSeconds);
     fighter.combatState = "CRITICAL_STUMBLE";
@@ -583,15 +608,30 @@ function updateFatigue(fighter: FighterState, dt: number, arenaRadius: number): 
 }
 
 function updateBalanceRecovery(fighter: FighterState, dt: number, arenaRadius: number): void {
+  const wasStumbling =
+    fighter.isOffBalance ||
+    fighter.combatState === "OFF_BALANCE" ||
+    fighter.combatState === "CRITICAL_STUMBLE";
   fighter.balanceRecoveryCooldown = Math.max(0, fighter.balanceRecoveryCooldown - dt);
   fighter.stumbleTimer = Math.max(0, fighter.stumbleTimer - dt);
   if (fighter.balanceRecoveryCooldown <= 0 && fighter.staggerSeconds <= 0 && !fighter.falling) {
     fighter.balance = applyBalanceRecovery(fighter.balance, dt, edgeRatio(fighter, arenaRadius), fatigueFactor(fighter));
   }
-  fighter.isOffBalance = fighter.balance < offBalanceThreshold || fighter.stumbleTimer > 0;
-  if (fighter.isOffBalance) {
+
+  const zeroBalanceStunned = fighter.balance <= 0 && fighter.body.stunSeconds > 0;
+  fighter.isOffBalance = zeroBalanceStunned || fighter.stumbleTimer > 0;
+
+  if (zeroBalanceStunned) {
+    fighter.combatState = "CRITICAL_STUMBLE";
+  } else if (fighter.stumbleTimer > 0) {
     fighter.combatState = fighter.balance < criticalBalanceThreshold ? "CRITICAL_STUMBLE" : "OFF_BALANCE";
-  } else if (fighter.combatState === "OFF_BALANCE" || fighter.combatState === "CRITICAL_STUMBLE") {
+  } else if (wasStumbling && !fighter.falling) {
+    fighter.body.recoverySeconds = Math.max(fighter.body.recoverySeconds, offBalanceRecoverySeconds);
+    fighter.combatState = "RECOVERING";
+    fighter.isOffBalance = false;
+  } else if (fighter.body.recoverySeconds > 0) {
+    fighter.combatState = "RECOVERING";
+  } else if (fighter.combatState === "OFF_BALANCE" || fighter.combatState === "CRITICAL_STUMBLE" || fighter.combatState === "RECOVERING") {
     fighter.combatState = "IDLE_GUARD";
   }
 }

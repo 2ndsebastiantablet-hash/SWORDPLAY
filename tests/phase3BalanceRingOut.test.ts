@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, stepDuel } from "../src/game/simulation";
+import { createInitialState, movementMultiplierForFighter, stepDuel } from "../src/game/simulation";
 import { Hud } from "../src/ui/Hud";
 import {
   criticalBalanceThreshold,
@@ -114,6 +114,44 @@ describe("phase 3 balance, pacing, and ring-out", () => {
     expect(center.player.balance).toBeGreaterThan(50);
     expect(edge.player.balance).toBeGreaterThan(50);
     expect(center.player.balance).toBeGreaterThan(edge.player.balance);
+  });
+
+  it("keeps off-balance movement controllable and only fully stops at zero-balance stun", () => {
+    const normal = createInitialState();
+    const offBalance = createInitialState();
+    const stunned = createInitialState();
+
+    offBalance.player.balance = 20;
+    offBalance.player.isOffBalance = true;
+    offBalance.player.stumbleTimer = 0.5;
+    offBalance.player.combatState = "OFF_BALANCE";
+
+    stunned.player.balance = 0;
+    stunned.player.body.stunSeconds = 0.4;
+    stunned.player.combatState = "CRITICAL_STUMBLE";
+
+    expect(movementMultiplierForFighter(normal.player)).toBe(1);
+    expect(movementMultiplierForFighter(offBalance.player)).toBeGreaterThan(0.5);
+    expect(movementMultiplierForFighter(offBalance.player)).toBeLessThan(1);
+    expect(movementMultiplierForFighter(stunned.player)).toBe(0);
+  });
+
+  it("returns off-balance fighters to a controllable recovery state instead of keeping them stuck", () => {
+    const state = createInitialState();
+    state.player.balance = 20;
+    state.player.isOffBalance = true;
+    state.player.stumbleTimer = 0.12;
+    state.player.balanceRecoveryCooldown = 0;
+    state.player.combatState = "OFF_BALANCE";
+
+    for (let i = 0; i < 18; i += 1) {
+      frame(state, { ...neutralInput, move: vec2(0, 1) });
+    }
+
+    expect(state.player.isOffBalance).toBe(false);
+    expect(state.player.combatState).not.toBe("OFF_BALANCE");
+    expect(state.player.combatState).not.toBe("CRITICAL_STUMBLE");
+    expect(length(state.player.velocity)).toBeGreaterThan(0.05);
   });
 
   it("does not add fatigue, recovery exposure, or lunging when a hard swing whiffs", () => {

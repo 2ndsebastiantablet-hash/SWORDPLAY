@@ -14,6 +14,7 @@ function bodyState(): FighterState["body"] {
     targetLean: vec2(0, 0),
     recentImpact: vec2(0, 0),
     stunSeconds: 0,
+    recoverySeconds: 0,
   };
 }
 
