@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chooseNpcIntent } from "../src/game/ai";
-import { arenaFloorY } from "../src/game/simulation";
+import { arenaFloorY, fighterRootCollisionRadius } from "../src/game/simulation";
 import { vec2 } from "../src/game/math";
 import type { FighterState } from "../src/game/types";
 
@@ -25,6 +25,7 @@ const npc: FighterState = {
   velocity: vec2(0, 0),
   rootHeight: arenaFloorY,
   verticalVelocity: 0,
+  collisionRadius: fighterRootCollisionRadius,
   facing: 0,
   health: 100,
   balance: 65,
@@ -61,6 +62,7 @@ const player: FighterState = {
   velocity: vec2(0, 0),
   rootHeight: arenaFloorY,
   verticalVelocity: 0,
+  collisionRadius: fighterRootCollisionRadius,
   facing: 0,
   health: 100,
   balance: 100,

@@ -92,10 +92,13 @@ describe("simplified combat loop", () => {
     expect(state.npc.inputLockSeconds).toBe(0);
     expect(length(state.player.sword.bounceOffset ?? vec2(0, 0))).toBeGreaterThan(0);
     expect(length(state.npc.sword.bounceOffset ?? vec2(0, 0))).toBeGreaterThan(0);
-    expect(state.player.position).toEqual(playerPosition);
-    expect(state.npc.position).toEqual(npcPosition);
-    expect(length(state.player.velocity)).toBe(0);
-    expect(length(state.npc.velocity)).toBe(0);
+    expect(length(sub(state.player.position, playerPosition))).toBeLessThan(0.35);
+    expect(length(sub(state.npc.position, npcPosition))).toBeLessThan(0.35);
+    expect(length(sub(state.player.position, state.npc.position))).toBeGreaterThanOrEqual(
+      state.player.collisionRadius + state.npc.collisionRadius - 0.01,
+    );
+    expect(state.player.movementLocked).toBe(false);
+    expect(state.npc.movementLocked).toBe(false);
   });
 
   it("does not punish whiffs with lunges, fatigue, recovery locks, or input freezes", () => {

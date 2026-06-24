@@ -34,7 +34,7 @@ function readyCloseDuel() {
 }
 
 describe("phase 2 combat matrix integration", () => {
-  it("perfect blade contact bounces weapons without sliding the defender backward", () => {
+  it("perfect blade contact bounces weapons while root circles separate without movement locks", () => {
     const state = readyCloseDuel();
     state.npc.inputLockSeconds = 0.3;
     state.npc.combatState = "BLOCKING";
@@ -53,7 +53,12 @@ describe("phase 2 combat matrix integration", () => {
     expect(state.player.combatState).not.toBe("PARRIED");
     expect(state.player.inputLockSeconds).toBe(0);
     expect(state.npc.health).toBe(100);
-    expect(length(vec2(state.npc.position.x - defenderBefore.x, state.npc.position.y - defenderBefore.y))).toBeLessThan(0.04);
+    expect(length(vec2(state.npc.position.x - defenderBefore.x, state.npc.position.y - defenderBefore.y))).toBeLessThan(0.22);
+    expect(length(vec2(state.player.position.x - state.npc.position.x, state.player.position.y - state.npc.position.y))).toBeGreaterThanOrEqual(
+      state.player.collisionRadius + state.npc.collisionRadius - 0.01,
+    );
+    expect(state.player.movementLocked).toBe(false);
+    expect(state.npc.movementLocked).toBe(false);
   });
 
   it("poor blade angle allows a clean hit with balance loss and no combat knockback", () => {

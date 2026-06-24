@@ -60,6 +60,7 @@ export type FighterState = {
   velocity: Vec2;
   rootHeight: number;
   verticalVelocity: number;
+  collisionRadius: number;
   facing: number;
   health: number;
   balance: number;

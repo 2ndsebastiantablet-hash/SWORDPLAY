@@ -48,6 +48,7 @@ import type {
 export const ARENA_RADIUS = 4.5;
 export const arenaFloorY = 0.105;
 const FIGHTER_RADIUS = 0.42;
+export const fighterRootCollisionRadius = 0.52;
 const BASE_SPEED = 2.35;
 const NPC_REACTION = 0.72;
 const SWORD_TARGET_SPEED = 4.9;
@@ -112,6 +113,7 @@ function makeFighter(id: "player" | "npc", position: Vec2): FighterState {
     velocity: vec2(0, 0),
     rootHeight: arenaFloorY,
     verticalVelocity: 0,
+    collisionRadius: fighterRootCollisionRadius,
     facing: id === "player" ? Math.PI / 2 : -Math.PI / 2,
     health: MAX_HEALTH,
     balance: defaultBalance,
@@ -224,6 +226,32 @@ export function forceUnstickFighter(fighter: FighterState, arenaRadius = ARENA_R
   const stunned = isZeroBalanceStunned(fighter);
   fighter.canMove = !stunned;
   fighter.movementLocked = stunned;
+}
+
+export function separateFighterRootCircles(a: FighterState, b: FighterState): void {
+  if (a.falling || b.falling) return;
+
+  const delta = sub(a.position, b.position);
+  const distance = length(delta);
+  const minDistance = a.collisionRadius + b.collisionRadius;
+  if (distance >= minDistance || minDistance <= 0) {
+    forceUnstickFighter(a);
+    forceUnstickFighter(b);
+    return;
+  }
+
+  const fallback = normalize(sub(a.position, b.position), fromAngle(a.facing));
+  const normal = distance > 0.001 ? scale(delta, 1 / distance) : fallback;
+  const penetration = minDistance - distance;
+  const correction = scale(normal, penetration * 0.5);
+
+  a.position = add(a.position, correction);
+  b.position = sub(b.position, correction);
+  a.velocity = add(a.velocity, scale(correction, 4));
+  b.velocity = sub(b.velocity, scale(correction, 4));
+
+  forceUnstickFighter(a);
+  forceUnstickFighter(b);
 }
 
 function addFatigue(fighter: FighterState, amount: number): void {
@@ -893,6 +921,7 @@ export function stepDuel(state: DuelState, input: PlayerInputFrame, dt: number):
   processPendingHits(state);
   updateKnockbackSlide(state.player, safeDt);
   updateKnockbackSlide(state.npc, safeDt);
+  separateFighterRootCircles(state.player, state.npc);
   drainRetreatBlockingBalance(state.player, state.npc, safeDt);
   drainRetreatBlockingBalance(state.npc, state.player, safeDt);
 

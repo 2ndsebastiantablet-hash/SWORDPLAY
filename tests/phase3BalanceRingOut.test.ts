@@ -4,6 +4,7 @@ import {
   createInitialState,
   forceUnstickFighter,
   movementMultiplierForFighter,
+  separateFighterRootCircles,
   stepDuel,
 } from "../src/game/simulation";
 import { Hud } from "../src/ui/Hud";
@@ -164,6 +165,54 @@ describe("phase 3 balance, pacing, and ring-out", () => {
     expect(state.player.movementLocked).toBe(false);
     expect(state.player.blockedByFloor).toBe(false);
     expect(length(state.player.velocity)).toBeGreaterThan(0.05);
+  });
+
+  it("separates overlapping fighter root circles horizontally without locking movement", () => {
+    const state = createInitialState();
+    state.player.position = vec2(0, 0);
+    state.npc.position = vec2(0.08, 0);
+    state.player.rootHeight = arenaFloorY;
+    state.npc.rootHeight = arenaFloorY;
+    state.player.canMove = false;
+    state.npc.canMove = false;
+    state.player.movementLocked = true;
+    state.npc.movementLocked = true;
+
+    separateFighterRootCircles(state.player, state.npc);
+
+    const minDistance = state.player.collisionRadius + state.npc.collisionRadius;
+    expect(length(sub(state.player.position, state.npc.position))).toBeGreaterThanOrEqual(minDistance - 0.001);
+    expect(state.player.rootHeight).toBe(arenaFloorY);
+    expect(state.npc.rootHeight).toBe(arenaFloorY);
+    expect(state.player.canMove).toBe(true);
+    expect(state.npc.canMove).toBe(true);
+    expect(state.player.movementLocked).toBe(false);
+    expect(state.npc.movementLocked).toBe(false);
+  });
+
+  it("prevents repeated body overlap from gluing fighters together during normal movement", () => {
+    const state = createInitialState();
+    state.player.position = vec2(0, 0);
+    state.npc.position = vec2(0.02, 0);
+    state.player.sword.hand = vec2(8, 8);
+    state.player.sword.tip = vec2(9, 9);
+    state.npc.sword.hand = vec2(-8, -8);
+    state.npc.sword.tip = vec2(-9, -9);
+
+    for (let i = 0; i < 30; i += 1) {
+      state.playerHitCooldown = 999;
+      state.npcHitCooldown = 999;
+      state.clashCooldown = 999;
+      frame(state, { ...neutralInput, move: vec2(1, 0) });
+    }
+
+    const minDistance = state.player.collisionRadius + state.npc.collisionRadius;
+    expect(length(sub(state.player.position, state.npc.position))).toBeGreaterThanOrEqual(minDistance - 0.01);
+    expect(state.player.rootHeight).toBe(arenaFloorY);
+    expect(state.npc.rootHeight).toBe(arenaFloorY);
+    expect(state.player.canMove).toBe(true);
+    expect(state.player.movementLocked).toBe(false);
+    expect(length(state.player.velocity)).toBeGreaterThan(0.02);
   });
 
   it("does not let the floor unstick controller rescue a real ring-out", () => {
