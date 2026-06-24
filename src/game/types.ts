@@ -58,6 +58,8 @@ export type FighterState = {
   id: FighterId;
   position: Vec2;
   velocity: Vec2;
+  rootHeight: number;
+  verticalVelocity: number;
   facing: number;
   health: number;
   balance: number;
@@ -76,6 +78,11 @@ export type FighterState = {
   combatState: CombatState;
   inputLockSeconds: number;
   lockedStateSeconds: number;
+  isGrounded: boolean;
+  isStuck: boolean;
+  canMove: boolean;
+  movementLocked: boolean;
+  blockedByFloor: boolean;
   sword: SwordState;
   body: FighterBodyState;
   blocking: boolean;

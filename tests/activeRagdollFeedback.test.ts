@@ -4,7 +4,7 @@ import {
   resolveSwordClash,
   swordBounceDistance,
 } from "../src/game/combat";
-import { createInitialState, stepDuel, swordWeightFactor } from "../src/game/simulation";
+import { arenaFloorY, createInitialState, stepDuel, swordWeightFactor } from "../src/game/simulation";
 import { length, sub, vec2 } from "../src/game/math";
 import {
   arenaSurfaceY,
@@ -275,6 +275,7 @@ describe("bowling-pin fighter presentation and sword feedback", () => {
   it("keeps the pin root clamped to the arena floor while lean and bob stay visual-only", () => {
     const state = createInitialState();
     state.player.body.bob = 0.035;
+    state.player.rootHeight = arenaFloorY - 0.7;
 
     expect(computeFighterRootY(state.player)).toBeCloseTo(arenaSurfaceY, 4);
 

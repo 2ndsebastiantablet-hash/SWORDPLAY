@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { sub, length, normalize, scale, add, vec2, dot, fromAngle, perpendicularRight, type Vec2 } from "../game/math";
 import { perfectParryStaggerSeconds } from "../game/combat";
+import { arenaFloorY } from "../game/simulation";
 import type { DuelState, FighterId, FighterState, ImpactEvent } from "../game/types";
 import {
   RAGDOLL_NODE_NAMES,
@@ -44,7 +45,7 @@ type LiveImpact = {
 };
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
-export const arenaSurfaceY = 0.105;
+export const arenaSurfaceY = arenaFloorY;
 const normalMaxPinLeanRadians = THREE.MathUtils.degToRad(16);
 const lowBalanceMaxPinLeanRadians = THREE.MathUtils.degToRad(30);
 const stunMaxPinLeanRadians = THREE.MathUtils.degToRad(50);
@@ -146,7 +147,7 @@ export function computeCorrectedPinVisualLift(rootY: number, visualLift: number,
 
 export function computeFighterRootY(fighter: FighterState): number {
   if (!fighter.falling) return arenaSurfaceY;
-  return arenaSurfaceY - Math.min(1.5, (fighter.fallSeconds ?? 0) * 1.1);
+  return Number.isFinite(fighter.rootHeight) ? fighter.rootHeight : arenaSurfaceY - Math.min(1.5, (fighter.fallSeconds ?? 0) * 1.1);
 }
 
 export class DuelRenderer {

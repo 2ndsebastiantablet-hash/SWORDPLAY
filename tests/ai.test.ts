@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { chooseNpcIntent } from "../src/game/ai";
+import { arenaFloorY } from "../src/game/simulation";
 import { vec2 } from "../src/game/math";
 import type { FighterState } from "../src/game/types";
 
@@ -22,6 +23,8 @@ const npc: FighterState = {
   id: "npc",
   position: vec2(4.05, 0),
   velocity: vec2(0, 0),
+  rootHeight: arenaFloorY,
+  verticalVelocity: 0,
   facing: 0,
   health: 100,
   balance: 65,
@@ -35,6 +38,11 @@ const npc: FighterState = {
   combatState: "IDLE_GUARD",
   inputLockSeconds: 0,
   lockedStateSeconds: 0,
+  isGrounded: true,
+  isStuck: false,
+  canMove: true,
+  movementLocked: false,
+  blockedByFloor: false,
   sword: {
     hand: vec2(4.05, 0),
     tip: vec2(3.4, 0.8),
@@ -51,6 +59,8 @@ const player: FighterState = {
   id: "player",
   position: vec2(1.2, 0),
   velocity: vec2(0, 0),
+  rootHeight: arenaFloorY,
+  verticalVelocity: 0,
   facing: 0,
   health: 100,
   balance: 100,
@@ -64,6 +74,11 @@ const player: FighterState = {
   combatState: "SLASHING",
   inputLockSeconds: 0,
   lockedStateSeconds: 0,
+  isGrounded: true,
+  isStuck: false,
+  canMove: true,
+  movementLocked: false,
+  blockedByFloor: false,
   sword: {
     hand: vec2(1.2, 0),
     tip: vec2(2.1, 0.6),

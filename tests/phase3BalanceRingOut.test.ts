@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, movementMultiplierForFighter, stepDuel } from "../src/game/simulation";
+import {
+  arenaFloorY,
+  createInitialState,
+  forceUnstickFighter,
+  movementMultiplierForFighter,
+  stepDuel,
+} from "../src/game/simulation";
 import { Hud } from "../src/ui/Hud";
 import {
   criticalBalanceThreshold,
@@ -134,6 +140,70 @@ describe("phase 3 balance, pacing, and ring-out", () => {
     expect(movementMultiplierForFighter(offBalance.player)).toBeGreaterThan(0.5);
     expect(movementMultiplierForFighter(offBalance.player)).toBeLessThan(1);
     expect(movementMultiplierForFighter(stunned.player)).toBe(0);
+  });
+
+  it("repairs a corrupted in-arena root every frame and restores movement flags", () => {
+    const state = createInitialState();
+    state.player.rootHeight = arenaFloorY - 2;
+    state.player.verticalVelocity = -30;
+    state.player.isGrounded = false;
+    state.player.isStuck = true;
+    state.player.canMove = false;
+    state.player.movementLocked = true;
+    state.player.blockedByFloor = true;
+    state.player.balance = 45;
+    state.player.body.stunSeconds = 0;
+
+    frame(state, { ...neutralInput, move: vec2(0, 1) });
+
+    expect(state.player.rootHeight).toBe(arenaFloorY);
+    expect(state.player.verticalVelocity).toBe(0);
+    expect(state.player.isGrounded).toBe(true);
+    expect(state.player.isStuck).toBe(false);
+    expect(state.player.canMove).toBe(true);
+    expect(state.player.movementLocked).toBe(false);
+    expect(state.player.blockedByFloor).toBe(false);
+    expect(length(state.player.velocity)).toBeGreaterThan(0.05);
+  });
+
+  it("does not let the floor unstick controller rescue a real ring-out", () => {
+    const state = createInitialState();
+    state.npc.position = vec2(state.arenaRadius + 0.35, 0);
+    state.npc.rootHeight = arenaFloorY;
+
+    frame(state);
+    frame(state);
+
+    expect(state.status).toBe("playerWon");
+    expect(state.npc.falling).toBe(true);
+    expect(state.npc.rootHeight).toBeLessThan(arenaFloorY);
+  });
+
+  it("keeps zero-balance stun on the floor and restores movement after the stun timer", () => {
+    const state = createInitialState();
+    state.player.balance = 0;
+    state.player.body.stunSeconds = 0.6;
+    state.player.rootHeight = arenaFloorY - 1;
+    state.player.verticalVelocity = -12;
+    state.npc.position = vec2(3.2, 0);
+    state.npc.sword.hand = vec2(8, 8);
+    state.npc.sword.tip = vec2(9, 9);
+    state.npcHitCooldown = 999;
+    state.playerHitCooldown = 999;
+    state.clashCooldown = 999;
+    forceUnstickFighter(state.player, state.arenaRadius);
+
+    expect(state.player.rootHeight).toBe(arenaFloorY);
+    expect(state.player.canMove).toBe(false);
+    expect(state.player.movementLocked).toBe(true);
+
+    for (let i = 0; i < 42; i += 1) {
+      frame(state, { ...neutralInput, move: vec2(0, 1) });
+    }
+
+    expect(state.player.rootHeight).toBe(arenaFloorY);
+    expect(state.player.canMove).toBe(true);
+    expect(state.player.movementLocked).toBe(false);
   });
 
   it("returns off-balance fighters to a controllable recovery state instead of keeping them stuck", () => {

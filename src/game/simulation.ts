@@ -46,6 +46,7 @@ import type {
 } from "./types";
 
 export const ARENA_RADIUS = 4.5;
+export const arenaFloorY = 0.105;
 const FIGHTER_RADIUS = 0.42;
 const BASE_SPEED = 2.35;
 const NPC_REACTION = 0.72;
@@ -109,6 +110,8 @@ function makeFighter(id: "player" | "npc", position: Vec2): FighterState {
     id,
     position,
     velocity: vec2(0, 0),
+    rootHeight: arenaFloorY,
+    verticalVelocity: 0,
     facing: id === "player" ? Math.PI / 2 : -Math.PI / 2,
     health: MAX_HEALTH,
     balance: defaultBalance,
@@ -123,6 +126,11 @@ function makeFighter(id: "player" | "npc", position: Vec2): FighterState {
     combatState: "IDLE_GUARD",
     inputLockSeconds: 0,
     lockedStateSeconds: 0,
+    isGrounded: true,
+    isStuck: false,
+    canMove: true,
+    movementLocked: false,
+    blockedByFloor: false,
     sword: emptySword(position),
     body: makeBodyState(),
     blocking: false,
@@ -189,6 +197,35 @@ function edgeDangerMultiplier(fighter: FighterState, arenaRadius: number): numbe
   return 1 + danger * (edgeBalanceDamageMultiplier - 1);
 }
 
+function isInsideArenaRoot(fighter: FighterState, arenaRadius: number): boolean {
+  return length(fighter.position) <= arenaRadius + 0.18;
+}
+
+function isZeroBalanceStunned(fighter: FighterState): boolean {
+  return fighter.balance <= 0 && fighter.body.stunSeconds > 0.001 && !fighter.falling;
+}
+
+export function forceUnstickFighter(fighter: FighterState, arenaRadius = ARENA_RADIUS): void {
+  if (fighter.falling || !isInsideArenaRoot(fighter, arenaRadius)) {
+    fighter.isGrounded = false;
+    fighter.canMove = false;
+    fighter.movementLocked = true;
+    fighter.blockedByFloor = false;
+    fighter.isStuck = false;
+    return;
+  }
+
+  fighter.rootHeight = arenaFloorY;
+  fighter.verticalVelocity = 0;
+  fighter.isGrounded = true;
+  fighter.isStuck = false;
+  fighter.blockedByFloor = false;
+
+  const stunned = isZeroBalanceStunned(fighter);
+  fighter.canMove = !stunned;
+  fighter.movementLocked = stunned;
+}
+
 function addFatigue(fighter: FighterState, amount: number): void {
   fighter.fatigue = clamp(fighter.fatigue + amount, 0, fighter.maxFatigue);
 }
@@ -208,11 +245,16 @@ function forceNeutralControl(fighter: FighterState): void {
   fighter.lockedStateSeconds = 0;
   fighter.isOffBalance = false;
   fighter.body.recoverySeconds = 0;
+  fighter.canMove = true;
+  fighter.movementLocked = false;
+  fighter.isStuck = false;
+  fighter.blockedByFloor = false;
   fighter.combatState = "IDLE_GUARD";
 }
 
 function updateBodyAnimation(fighter: FighterState, dt: number, elapsed: number): void {
   fighter.body.stunSeconds = Math.max(0, fighter.body.stunSeconds - dt);
+  if (fighter.body.stunSeconds <= 0.001) fighter.body.stunSeconds = 0;
   fighter.body.recoverySeconds = Math.max(0, fighter.body.recoverySeconds - dt);
 
   const speed = length(fighter.velocity);
@@ -245,6 +287,7 @@ function updateBodyAnimation(fighter: FighterState, dt: number, elapsed: number)
 
 export function movementMultiplierForFighter(fighter: FighterState): number {
   if (fighter.falling) return 1;
+  if (!fighter.canMove || fighter.movementLocked) return 0;
   if (fighter.balance <= 0 && fighter.body.stunSeconds > 0) return 0;
 
   let multiplier = lerp(0.78, 1, balanceRatio(fighter));
@@ -377,6 +420,13 @@ function updateSwordPhysics(fighter: FighterState, aim: Vec2, roll: number, move
 function integrateFighter(fighter: FighterState, desiredMove: Vec2, dt: number, elapsed: number): void {
   if (fighter.falling) {
     fighter.fallSeconds = (fighter.fallSeconds ?? 0) + dt;
+    fighter.verticalVelocity = Math.min(fighter.verticalVelocity - 7.5 * dt, -0.35);
+    fighter.rootHeight += fighter.verticalVelocity * dt;
+    fighter.isGrounded = false;
+    fighter.isStuck = false;
+    fighter.canMove = false;
+    fighter.movementLocked = true;
+    fighter.blockedByFloor = false;
     fighter.position = add(fighter.position, scale(fighter.velocity, dt));
     updateBodyAnimation(fighter, dt, elapsed);
     return;
@@ -439,7 +489,7 @@ function isKnockbackVulnerable(fighter: FighterState): boolean {
 }
 
 function startKnockbackSlide(fighter: FighterState, direction: Vec2): void {
-  const slideDirection = normalize(direction, fighter.lastKnockbackDirection ?? vec2(0, 1));
+  const slideDirection = normalize(vec2(direction.x, direction.y), fighter.lastKnockbackDirection ?? vec2(0, 1));
   const slideDistance = knockbackSlideBaseDistance * (1 + (fighter.maxBalance - fighter.balance) / 25);
   fighter.lastKnockbackDirection = slideDirection;
   fighter.body.recentImpact = slideDirection;
@@ -769,6 +819,12 @@ function checkRingOut(state: DuelState, fighter: FighterState, winner: "playerWo
 
   fighter.falling = true;
   fighter.fallSeconds = 0;
+  fighter.isGrounded = false;
+  fighter.isStuck = false;
+  fighter.canMove = false;
+  fighter.movementLocked = true;
+  fighter.blockedByFloor = false;
+  fighter.verticalVelocity = Math.min(fighter.verticalVelocity, -1.4);
   fighter.velocity = add(fighter.velocity, scale(normalize(fighter.position), 1.4));
   state.status = winner;
   state.message = winner === "playerWon" ? "Opponent knocked out" : "You fell from the arena";
@@ -810,6 +866,8 @@ export function stepDuel(state: DuelState, input: PlayerInputFrame, dt: number):
   state.npc.stumbleTimer = Math.max(0, state.npc.stumbleTimer - safeDt);
   updateLockSafety(state.player, safeDt);
   updateLockSafety(state.npc, safeDt);
+  forceUnstickFighter(state.player, state.arenaRadius);
+  forceUnstickFighter(state.npc, state.arenaRadius);
 
   updateFacing(state.player, state.npc);
   const playerMove = localMoveToWorld(state.player, input.move);
@@ -844,6 +902,8 @@ export function stepDuel(state: DuelState, input: PlayerInputFrame, dt: number):
   updateFatigue(state.npc, safeDt, state.arenaRadius);
   updateBalanceRecovery(state.player, safeDt, state.arenaRadius);
   updateBalanceRecovery(state.npc, safeDt, state.arenaRadius);
+  forceUnstickFighter(state.player, state.arenaRadius);
+  forceUnstickFighter(state.npc, state.arenaRadius);
 
   checkRingOut(state, state.npc, "playerWon");
   checkRingOut(state, state.player, "npcWon");
